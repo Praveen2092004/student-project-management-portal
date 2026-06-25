@@ -1,107 +1,84 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { 
-  Sun, Moon, Plus, Trash2, Edit3, Search, Loader2, 
-  AlertCircle, CheckCircle, Layers, 
-  CheckSquare, Clock, LayoutGrid, SlidersHorizontal
+  Plus, Search, Filter, ArrowUpDown, Moon, Sun, 
+  CheckCircle, Clock, AlertCircle, Layers, Trash2, Edit3,
+  Sparkles
 } from 'lucide-react';
 
-const API_URL = 'http://localhost:5000/api/tasks';
+const API_BASE_URL = 'http://localhost:5000/api/tasks';
 
 export default function App() {
   const [tasks, setTasks] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [darkMode, setDarkMode] = useState(localStorage.getItem('theme') === 'dark');
+  const [loading, setLoading] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => localStorage.getItem('theme') === 'dark');
+  const [stats, setStats] = useState({ total: 0, pending: 0, inProgress: 0, completed: 0 });
   
-  // State management for field parameters
+  const [editingId, setEditingId] = useState(null);
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [status, setStatus] = useState('Pending');
-  const [editingId, setEditingId] = useState(null);
-
-  // Filter state pipelines
+  
   const [search, setSearch] = useState('');
   const [filterStatus, setFilterStatus] = useState('All');
-  const [sortOrder, setSortOrder] = useState('newest');
+  const [sortBy, setSortBy] = useState('Newest First');
 
-  // Interactive overlays tracking states
-  const [toast, setToast] = useState(null);
-  const [showModal, setShowModal] = useState(false);
-  const [taskToDelete, setTaskToDelete] = useState(null);
-
-  // Hook layout tracking dark mode states across windows
   useEffect(() => {
+    const root = window.document.documentElement;
     if (darkMode) {
-      document.documentElement.classList.add('dark');
+      root.classList.add('dark');
       localStorage.setItem('theme', 'dark');
     } else {
-      document.documentElement.classList.remove('dark');
+      root.classList.remove('dark');
       localStorage.setItem('theme', 'light');
     }
   }, [darkMode]);
 
-  const showNotification = (msg, type = 'success') => {
-    setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+  const calculateStats = (allTasks) => {
+    const total = allTasks.length;
+    const pending = allTasks.filter(t => t.status === 'Pending').length;
+    const inProgress = allTasks.filter(t => t.status === 'In Progress').length;
+    const completed = allTasks.filter(t => t.status === 'Completed').length;
+    setStats({ total, pending, inProgress, completed });
   };
 
   const fetchTasks = async () => {
+    setLoading(true);
     try {
-      const res = await axios.get(API_URL);
-      setTasks([...res.data]); // Forces array reference update to trigger clean React rerender
-    } catch (err) {
-      showNotification('Failed to connect to backend data infrastructure', 'error');
+      const response = await axios.get(API_BASE_URL);
+      const data = response.data.tasks || response.data;
+      if (Array.isArray(data)) {
+        setTasks(data);
+        calculateStats(data);
+      }
+    } catch (error) {
+      console.error("Error retrieving tasks:", error);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { 
-    fetchTasks(); 
+  useEffect(() => {
+    fetchTasks();
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    // Client-side Validation Checks
-    if (!title.trim() || !description.trim()) {
-      showNotification('Validation Guard: Fields cannot remain blank!', 'error');
-      return;
-    }
+    if (!title.trim() || !description.trim()) return alert("Please fill out all task criteria headers.");
 
     try {
       if (editingId) {
-        await axios.put(`${API_URL}/${editingId}`, { title, description, status });
-        showNotification('Task parameters updated cleanly');
+        await axios.put(`${API_BASE_URL}/${editingId}`, { title, description, status });
+        setEditingId(null);
       } else {
-        await axios.post(API_URL, { title, description, status });
-        showNotification('New operational task record initialized');
+        await axios.post(API_BASE_URL, { title, description, status });
       }
-      // Reset layout variables cleanly before calling fetch
-      setTitle(''); 
-      setDescription(''); 
-      setStatus('Pending'); 
-      setEditingId(null);
-      
-      // Pull latest database slice back into local memory
-      await fetchTasks();
-    } catch (err) {
-      showNotification(err.response?.data?.message || 'Data mutations error occurred', 'error');
-    }
-  };
-
-  const triggerDeleteConfirm = (id) => {
-    setTaskToDelete(id);
-    setShowModal(true);
-  };
-
-  const executeDelete = async () => {
-    try {
-      await axios.delete(`${API_URL}/${taskToDelete}`);
-      showNotification('Record purged from data storage arrays');
-      setShowModal(false);
+      setTitle('');
+      setDescription('');
+      setStatus('Pending');
       fetchTasks();
-    } catch (err) {
-      showNotification('Error dropping task index point', 'error');
+    } catch (error) {
+      console.error("Submission operational failure:", error);
     }
   };
 
@@ -112,188 +89,302 @@ export default function App() {
     setStatus(task.status);
   };
 
-  // Real-time statistical metrics aggregations
-  const stats = {
-    total: tasks.length,
-    pending: tasks.filter(t => t.status === 'Pending').length,
-    progress: tasks.filter(t => t.status === 'In Progress').length,
-    completed: tasks.filter(t => t.status === 'Completed').length,
+  const deleteTask = async (id) => {
+    if (!window.confirm("Are you sure you want to remove this project node entry?")) return;
+    try {
+      await axios.delete(`${API_BASE_URL}/${id}`);
+      fetchTasks();
+    } catch (error) {
+      console.error("Deletion target pipeline error:", error);
+    }
   };
 
-  // List pipelines manipulation logic arrays
-  const filteredTasks = tasks
+  const processedTasks = tasks
     .filter(task => {
-      const titleMatch = task.title ? task.title.toLowerCase().includes(search.toLowerCase()) : false;
-      const descMatch = task.description ? task.description.toLowerCase().includes(search.toLowerCase()) : false;
-      const matchesSearch = titleMatch || descMatch;
+      const matchesSearch = 
+        task.title.toLowerCase().includes(search.toLowerCase()) || 
+        task.description.toLowerCase().includes(search.toLowerCase());
       const matchesFilter = filterStatus === 'All' || task.status === filterStatus;
       return matchesSearch && matchesFilter;
     })
     .sort((a, b) => {
-      const dateA = a.createdAt ? new Date(a.createdAt) : new Date();
-      const dateB = b.createdAt ? new Date(b.createdAt) : new Date();
-      return sortOrder === 'newest' ? dateB - dateA : dateA - dateB;
+      const dateA = new Date(a.createdAt || a.date || 0);
+      const dateB = new Date(b.createdAt || b.date || 0);
+      return sortBy === 'Newest First' ? dateB - dateA : dateA - dateB;
     });
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 font-sans transition-colors duration-200">
+    <div className={`min-h-screen font-sans transition-colors duration-500 bg-gradient-to-br ${
+      darkMode 
+        ? 'from-[#090D1A] via-[#0F172A] to-[#1E1B4B] text-slate-100' 
+        : 'from-slate-50 via-gray-100 to-blue-50 text-slate-800'
+    }`}>
       
-      {/* Toast Alert Systems Popups */}
-      {toast && (
-        <div className={`fixed top-6 right-6 z-50 flex items-center gap-3 px-5 py-3.5 rounded-xl shadow-2xl border backdrop-blur-md transition-all duration-300 ${
-          toast.type === 'error' 
-            ? 'bg-red-500/10 border-red-500/20 text-red-600 dark:text-red-400' 
-            : 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400'
-        }`}>
-          {toast.type === 'error' ? <AlertCircle size={18}/> : <CheckCircle size={18}/>}
-          <span className="font-semibold text-xs tracking-wide">{toast.msg}</span>
-        </div>
-      )}
-
-      {/* Confirmation Modals Overlays */}
-      {showModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200/60 dark:border-slate-800/80">
-            <h3 className="text-lg font-bold tracking-tight">Confirm Resource Deletion</h3>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">Are you sure you want to drop this task card? This operation will remove the memory tracking parameters and cannot be reversed.</p>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold transition-colors">Abort</button>
-              <button onClick={executeDelete} className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-bold transition-colors shadow-lg shadow-red-600/20">Purge Data</button>
+      {/* HEADER BAR */}
+      <header className={`border-b sticky top-0确定 z-50 backdrop-blur-xl shadow-sm transition-colors duration-500 ${
+        darkMode ? 'border-slate-800/80 bg-[#090D1A]/70' : 'border-slate-200/80 bg-white/70'
+      }`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <div className="bg-gradient-to-tr from-blue-600 to-indigo-500 p-2.5 rounded-2xl text-white shadow-lg shadow-blue-500/30">
+              <Layers className="w-6 h-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="font-extrabold text-xl tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-blue-500 via-indigo-400 to-purple-500 dark:from-white dark:to-slate-300">
+                  Project Portal
+                </h1>
+                <span className="text-[10px] font-bold tracking-widest uppercase px-2 py-0.5 bg-indigo-500/10 text-indigo-500 rounded-md border border-indigo-500/20">
+                  v2.0 PRO
+                </span>
+              </div>
+              <p className="text-xs text-slate-400 font-medium">Klenty Recruitment Workspace Evaluation</p>
             </div>
           </div>
-        </div>
-      )}
-
-      {/* Main Structural Navigation Header */}
-      <header className="border-b border-slate-200/60 dark:border-slate-900 sticky top-0 bg-white/75 dark:bg-slate-950/75 backdrop-blur-xl z-40">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <div className="p-2 bg-blue-600 rounded-xl text-white shadow-md shadow-blue-600/20">
-              <LayoutGrid size={18} />
-            </div>
-            <h1 className="text-base font-extrabold tracking-tight text-slate-900 dark:text-white">
-              Student Mini Project Management Portal <span className="text-[10px] font-bold text-slate-400 ml-2 px-2 py-0.5 bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-md">PRO PRODUCTION</span>
-            </h1>
-          </div>
-          <button onClick={() => setDarkMode(!darkMode)} className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-100 dark:hover:bg-slate-900 text-slate-500 dark:text-slate-400 transition-colors">
-            {darkMode ? <Sun size={18} className="text-amber-400"/> : <Moon size={18}/>}
+          
+          <button 
+            type="button"
+            onClick={() => setDarkMode(!darkMode)}
+            className={`p-3 rounded-2xl border transition-all duration-300 transform active:scale-95 ${
+              darkMode 
+                ? 'bg-slate-900/60 border-slate-800 hover:border-slate-700 text-amber-400 hover:shadow-lg hover:shadow-amber-500/10' 
+                : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-600 hover:shadow-md'
+            }`}
+          >
+            {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           </button>
         </div>
       </header>
 
-      {/* Main Work Area Container */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
         
-        {/* Statistics Metric Component Grid */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
+        {/* STATS SECTION */}
+        <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
           {[
-            { label: 'Total Task Records', count: stats.total, icon: Layers, color: 'text-blue-600 bg-blue-500/10 border-blue-500/20' },
-            { label: 'Pending Lifecycle', count: stats.pending, icon: Clock, color: 'text-amber-600 bg-amber-500/10 border-amber-500/20' },
-            { label: 'In Progress Phase', count: stats.progress, icon: SlidersHorizontal, color: 'text-indigo-600 bg-indigo-500/10 border-indigo-500/20' },
-            { label: 'Completed Milestones', count: stats.completed, icon: CheckSquare, color: 'text-emerald-600 bg-emerald-500/10 border-emerald-500/20' }
-          ].map((block, i) => {
-            const IconComponent = block.icon;
-            return (
-              <div key={`stat-${i}`} className="p-6 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-900/60 shadow-xs flex items-center justify-between transition-all hover:-translate-y-0.5 duration-200">
-                <div className="space-y-1">
-                  <span className="text-xs font-bold text-slate-400 tracking-wide block">{block.label}</span>
-                  <span className="text-3xl font-black tracking-tight">{block.count}</span>
+            { label: 'Total Tracked Logs', count: stats.total, color: 'text-blue-500 dark:text-blue-400', bg: 'bg-blue-500/10', border: 'border-blue-500/20', icon: Layers },
+            { label: 'Pending Lifecycle', count: stats.pending, color: 'text-amber-500 dark:text-amber-400', bg: 'bg-amber-500/10', border: 'border-amber-500/20', icon: AlertCircle },
+            { label: 'In Progress Phase', count: stats.inProgress, color: 'text-purple-500 dark:text-purple-400', bg: 'bg-purple-500/10', border: 'border-purple-500/20', icon: Clock },
+            { label: 'Completed Milestones', count: stats.completed, color: 'text-emerald-500 dark:text-emerald-400', bg: 'bg-emerald-500/10', border: 'border-emerald-500/20', icon: CheckCircle },
+          ].map((item, idx) => (
+            <div key={idx} className={`p-6 rounded-3xl border transition-all duration-300 hover:-translate-y-1 ${
+              darkMode 
+                ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700/80 shadow-xl backdrop-blur-md' 
+                : 'bg-white border-slate-100 shadow-xl shadow-slate-100/50'
+            }`}>
+              <div className="flex justify-between items-center">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{item.label}</p>
+                  <p className="text-3xl font-black mt-2 tracking-tight">{item.count}</p>
                 </div>
-                <div className={`p-3 rounded-xl border ${block.color}`}>
-                  <IconComponent size={20} />
+                <div className={`p-3.5 rounded-2xl ${item.bg} ${item.color} shadow-inner`}>
+                  <item.icon className="w-6 h-6" />
                 </div>
               </div>
-            );
-          })}
-        </div>
+            </div>
+          ))}
+        </section>
 
-        {/* Workspace Layout Columns Configuration split */}
-        <div className="grid lg:grid-cols-3 gap-8 items-start">
+        {/* TWO-COLUMN GRID ARCHITECTURE */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          {/* Reactive Input Control Form Box */}
-          <div className="bg-white dark:bg-slate-900 p-6 rounded-2xl border border-slate-200/60 dark:border-slate-900/60 shadow-xs lg:sticky top-24">
-            <h2 className="text-xs font-bold tracking-wider uppercase text-slate-400 mb-5">{editingId ? 'Modify System Attributes' : 'Provision New Portal Entry'}</h2>
-            <form onSubmit={handleSubmit} className="space-y-5">
-              <div>
-                <label className="text-xs font-bold block mb-1.5 text-slate-500 dark:text-slate-400 uppercase tracking-wide">Task Title</label>
-                <input type="text" value={title} onChange={e => setTitle(e.target.value)} placeholder="Provide deployment node title..." className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-sm outline-none focus:border-blue-600 dark:focus:border-blue-500 transition-colors"/>
-              </div>
-              <div>
-                <label className="text-xs font-bold block mb-1.5 text-slate-500 dark:text-slate-400 uppercase tracking-wide">Scope Description</label>
-                <textarea rows="3" value={description} onChange={e => setDescription(e.target.value)} placeholder="Outline code specifications and requirements context..." className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-sm outline-none focus:border-blue-600 dark:focus:border-blue-500 transition-colors resize-none"></textarea>
-              </div>
-              <div>
-                <label className="text-xs font-bold block mb-1.5 text-slate-500 dark:text-slate-400 uppercase tracking-wide">Lifecycle State</label>
-                <select value={status} onChange={e => setStatus(e.target.value)} className="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-sm outline-none focus:border-blue-600 transition-colors cursor-pointer">
-                  <option value="Pending">Pending</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
-                </select>
-              </div>
-              <button type="submit" className="w-full mt-2 py-3 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-600/10 cursor-pointer">
-                {editingId ? 'Apply Global Scope Mutations' : <><Plus size={16}/> Push Task Entry</>}
-              </button>
-              {editingId && (
-                <button type="button" onClick={() => { setEditingId(null); setTitle(''); setDescription(''); }} className="w-full py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-bold transition-colors">Cancel Modification</button>
-              )}
-            </form>
+          {/* TASK CREATION FORM CONTAINER */}
+          <div className="lg:col-span-1">
+            <div className={`p-6 rounded-3xl border sticky top-32 transition-all ${
+              darkMode ? 'bg-slate-900/50 border-slate-800/80 shadow-2xl backdrop-blur-md' : 'bg-white border-slate-200 shadow-xl'
+            }`}>
+              <h2 className="text-xs font-black uppercase tracking-widest text-indigo-500 dark:text-indigo-400 mb-6 flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-blue-500" /> {editingId ? "Update Structure Node" : "Deploy Component Node"}
+              </h2>
+              
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div>
+                  <label className="block text-xs font-bold tracking-wide mb-2 uppercase text-slate-400">Task Title</label>
+                  <input 
+                    type="text" 
+                    value={title}
+                    onChange={(e) => setTitle(e.target.value)}
+                    placeholder="Provide execution node title..." 
+                    className={`w-full px-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                      darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-blue-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'
+                    }`}
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold tracking-wide mb-2 uppercase text-slate-400">Scope Description</label>
+                  <textarea 
+                    rows="4"
+                    value={description}
+                    onChange={(e) => setDescription(e.target.value)}
+                    placeholder="Outline code specifications scope..." 
+                    className={`w-full px-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                      darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-blue-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'
+                    }`}
+                  ></textarea>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold tracking-wide mb-2 uppercase text-slate-400">Lifecycle State</label>
+                  <select 
+                    value={status}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className={`w-full px-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 focus:ring-blue-500/20 transition-all ${
+                      darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-blue-500' : 'bg-slate-50 border-slate-200 focus:border-blue-500'
+                    }`}
+                  >
+                    <option value="Pending">⌛ Pending</option>
+                    <option value="In Progress">⚡ In Progress</option>
+                    <option value="Completed">✅ Completed</option>
+                  </select>
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  {editingId && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        setEditingId(null);
+                        setTitle('');
+                        setDescription('');
+                        setStatus('Pending');
+                      }}
+                      className="w-1/3 bg-slate-500/20 hover:bg-slate-500/30 text-slate-400 font-semibold py-3 px-3 rounded-2xl text-sm transition-all"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                  <button 
+                    type="submit"
+                    className={`font-bold py-3 px-4 rounded-2xl text-sm flex items-center justify-center gap-2 transition-all transform active:scale-98 text-white ${
+                      editingId 
+                        ? 'w-2/3 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 shadow-lg shadow-purple-600/20' 
+                        : 'w-full bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-lg shadow-blue-600/20'
+                    }`}
+                  >
+                    <Plus className="w-4 h-4" /> {editingId ? "Save Changes" : "Push Data Entry"}
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
 
-          {/* Data Filter Management Grid Column Stream output */}
-          <div className="lg:col-span-2 space-y-4">
+          {/* PIPELINE FILTERS & LIST VIEW */}
+          <div className="lg:col-span-2 space-y-5">
             
-            {/* Filtering Control Operations Header Panel */}
-            <div className="bg-white dark:bg-slate-900 p-4 rounded-2xl border border-slate-200/60 dark:border-slate-900/60 shadow-xs flex flex-col sm:flex-row gap-3">
-              <div className="flex-1 relative">
-                <Search size={16} className="absolute left-3.5 top-3.5 text-slate-400" />
-                <input type="text" value={search} onChange={e => setSearch(e.target.value)} placeholder="Filter by titles, descriptors, tokens..." className="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/50 text-sm outline-none focus:border-blue-600" />
+            {/* CONTROL PANEL BAR */}
+            <div className={`p-4 rounded-3xl border flex flex-col md:flex-row gap-4 items-center justify-between ${
+              darkMode ? 'bg-slate-900/50 border-slate-800/80 shadow-xl backdrop-blur-md' : 'bg-white border-slate-200 shadow-lg shadow-slate-100/40'
+            }`}>
+              <div className="relative w-full md:w-80">
+                <Search className="w-4 h-4 absolute left-4 top-4 text-slate-400" />
+                <input 
+                  type="text"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Filter keys, parameters, logs..."
+                  className={`w-full pl-11 pr-4 py-3 rounded-2xl text-sm border focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all ${
+                    darkMode ? 'bg-slate-950 border-slate-800 text-white focus:border-indigo-500' : 'bg-slate-50 border-slate-200 focus:border-indigo-500'
+                  }`}
+                />
               </div>
-              <div className="flex gap-2">
-                <select value={filterStatus} onChange={e => setFilterStatus(e.target.value)} className="p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm outline-none cursor-pointer">
-                  <option value="All">All Statuses</option>
-                  <option value="Pending">Pending</option>
-                  <option value="In Progress">In Progress</option>
-                  <option value="Completed">Completed</option>
-                </select>
-                <button onClick={() => setSortOrder(sortOrder === 'newest' ? 'oldest' : 'newest')} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-sm font-bold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors flex items-center gap-2 cursor-pointer">
-                  {sortOrder === 'newest' ? '🗓️ Newest First' : '🗓️ Oldest First'}
-                </button>
+
+              <div className="flex gap-4 w-full md:w-auto justify-end">
+                <div className="flex items-center gap-2">
+                  <Filter className="w-4 h-4 text-slate-400" />
+                  <select 
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value)}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold border focus:outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}
+                  >
+                    <option value="All">All Statuses</option>
+                    <option value="Pending">Pending</option>
+                    <option value="In Progress">In Progress</option>
+                    <option value="Completed">Completed</option>
+                  </select>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <ArrowUpDown className="w-4 h-4 text-slate-400" />
+                  <select 
+                    value={sortBy}
+                    onChange={(e) => setSortBy(e.target.value)}
+                    className={`px-3 py-2.5 rounded-xl text-xs font-bold border focus:outline-none ${darkMode ? 'bg-slate-950 border-slate-800 text-white' : 'bg-slate-50 border-slate-200'}`}
+                  >
+                    <option value="Newest First">Newest First</option>
+                    <option value="Oldest First">Oldest First</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* Core Output Stream Handler Component */}
-            {loading ? (
-              <div className="flex flex-col items-center justify-center py-24 text-slate-400 gap-3 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-900/60">
-                <Loader2 size={24} className="animate-spin text-blue-600"/>
-                <span className="text-xs font-semibold tracking-wider">Compiling data configuration array feeds...</span>
-              </div>
-            ) : filteredTasks.length === 0 ? (
-              <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-slate-400">
-                <p className="text-sm font-bold text-slate-500 dark:text-slate-400">Empty State Boundary Triggered</p>
-                <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">No structural logs match the current pipeline filtering settings parameters.</p>
-              </div>
-            ) : (
-              <div className="space-y-3.5">
-                {filteredTasks.map((task, index) => (
-                  <div key={task._id || `task-${index}`} className="p-5 bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/60 dark:border-slate-900/60 flex justify-between items-start gap-5 hover:border-slate-300 dark:hover:border-slate-800 transition-all shadow-xs group">
-                    <div className="space-y-2">
-                      <span className={`text-[10px] font-extrabold uppercase tracking-widest px-2.5 py-1 rounded-md border ${
-                        task.status === 'Completed' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-600 dark:text-emerald-400' :
-                        task.status === 'In Progress' ? 'bg-indigo-500/10 border-indigo-500/20 text-indigo-600 dark:text-indigo-400' :
-                        'bg-amber-500/10 border-amber-500/20 text-amber-600 dark:text-amber-400'
-                      }`}>{task.status}</span>
-                      <h3 className="font-bold text-base text-slate-900 dark:text-slate-100 tracking-tight pt-1">{task.title}</h3>
-                      <p className="text-sm text-slate-500 dark:text-slate-400 leading-relaxed max-w-xl">{task.description}</p>
-                    </div>
-                    <div className="flex gap-1 md:opacity-0 group-hover:opacity-100 transition-opacity duration-150">
-                      <button onClick={() => startEdit(task)} className="p-2 text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"><Edit3 size={15}/></button>
-                      <button onClick={() => triggerDeleteConfirm(task._id)} className="p-2 text-slate-400 hover:text-red-600 dark:hover:text-red-400 rounded-xl hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"><Trash2 size={15}/></button>
+            {/* LIVE FEED DISPLAY TASKS */}
+            <div className="space-y-4">
+              {loading ? (
+                <div className="text-center py-16 text-sm font-semibold tracking-wide animate-pulse text-indigo-400">
+                  Indexing secure storage layers...
+                </div>
+              ) : processedTasks.length === 0 ? (
+                <div className={`p-16 text-center rounded-3xl border-2 border-dashed ${
+                  darkMode ? 'border-slate-800 text-slate-500' : 'border-slate-200 text-slate-400'
+                }`}>
+                  <AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-40 text-indigo-500" />
+                  <p className="text-sm font-bold">No active threads found matching selection metrics.</p>
+                </div>
+              ) : (
+                processedTasks.map((task) => (
+                  <div 
+                    key={task._id}
+                    className={`p-6 rounded-3xl border transition-all duration-300 group relative overflow-hidden ${
+                      darkMode 
+                        ? 'bg-slate-900/40 border-slate-800/80 hover:border-slate-700 hover:bg-slate-900/70 shadow-lg' 
+                        : 'bg-white border-slate-100 hover:shadow-xl shadow-md shadow-slate-100/40'
+                    }`}
+                  >
+                    <div className={`absolute top-0 left-0 w-1.5 h-full ${
+                      task.status === 'Completed' ? 'bg-emerald-500' :
+                      task.status === 'In Progress' ? 'bg-purple-500' : 'bg-amber-500'
+                    }`} />
+
+                    <div className="flex justify-between items-start gap-6 pl-2">
+                      <div className="space-y-2">
+                        <div className="flex items-center gap-3 flex-wrap">
+                          <span className={`text-[9px] font-black tracking-widest uppercase px-2.5 py-1 rounded-lg ${
+                            task.status === 'Completed' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
+                            task.status === 'In Progress' ? 'bg-purple-500/10 text-purple-400 border border-purple-500/20' :
+                            'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                          }`}>
+                            {task.status}
+                          </span>
+                          <h3 className="font-bold text-base tracking-tight">{task.title}</h3>
+                        </div>
+                        <p className={`text-xs leading-relaxed font-medium ${darkMode ? 'text-slate-400' : 'text-slate-600'}`}>{task.description}</p>
+                      </div>
+
+                      <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200 transform translate-x-2 group-hover:translate-x-0">
+                        <button 
+                          type="button"
+                          onClick={() => startEdit(task)}
+                          className={`p-2 rounded-xl border transition-all shadow-sm ${
+                            darkMode ? 'bg-slate-800 border-slate-700 hover:bg-slate-700 text-slate-300' : 'bg-slate-50 border-slate-200 hover:bg-slate-100 text-slate-600'
+                          }`}
+                        >
+                          <Edit3 className="w-4 h-4" />
+                        </button>
+                        <button 
+                          type="button"
+                          onClick={() => deleteTask(task._id)}
+                          className="p-2 rounded-xl border border-red-500/20 bg-red-500/5 text-red-400 hover:bg-red-500/20 transition-all shadow-sm"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
+
         </div>
       </main>
     </div>
